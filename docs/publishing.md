@@ -1,6 +1,6 @@
 # GitHub Pagesの公開・更新手順
 
-状態：設定ファイルを作成・ローカル検証済み。ソース・仕様・ワークフローをGitHubへ反映する準備版。Actionsでの成功は実行結果で確認し、ローカル検証と区別する。Pagesの有効化、デプロイ、公開URLの疎通確認は未実施。通常履歴のメールは修正済みで、古い参照が残る点をユーザーが承知して進める方針とした。[対応記録](email-privacy.md)を参照。[点検結果](release-review.md)
+状態：設定ファイルを作成・ローカル検証済み。ソース・仕様・ワークフローはGitHubへ反映済み。Ubuntu runnerでの[初回Actions検証](https://github.com/rei-aogaki/color-analysis/actions/runs/39194381609)は成功し、公開ジョブはスキップされた。Pagesの有効化、デプロイ、公開URLの疎通確認は未実施。通常履歴のメールは修正済みで、古い参照が残る点をユーザーが承知して進める方針とした。[対応記録](email-privacy.md)を参照。[点検結果](release-review.md)
 
 ## 1. 公開の仕組み
 
