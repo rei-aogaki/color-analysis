@@ -1,6 +1,6 @@
 # 開発と検証
 
-現在はローカルの試作段階。Pages公開設定・CIを作成済み。Pagesの有効化と初回デプロイは未実施。合成画像だけで開発・検証し、実ユーザーの画像や個人情報をコミットしない。[公開前点検](docs/release-review.md)と[公開手順](docs/publishing.md)を参照。
+試作版をGitHub Pagesで公開済み。Pages公開設定・CIを用意し、mainへの更新で検証後に自動配信する。合成画像だけで開発・検証し、実ユーザーの画像や個人情報をコミットしない。[公開前点検](docs/release-review.md)と[公開手順](docs/publishing.md)を参照。
 
 ## 準備
 
