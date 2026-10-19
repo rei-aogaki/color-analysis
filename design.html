@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; worker-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>2つの画面案 — color-analysis</title>
+  <script type="module" src="/src/design/main.ts"></script>
+</head>
+<body data-design="gallery">
+  <div class="study-bar">
+    <div class="study-label"><span class="study-dot"></span> デザイン比較 <span class="study-stage">/ 同じ画像・同じ数値で比較</span></div>
+    <div class="design-switch" role="group" aria-label="デザインを切り替える">
+      <button id="gallery" type="button" aria-pressed="true"><span>A</span> ギャラリー</button>
+      <button id="editorial" type="button" aria-pressed="false"><span>B</span> 編集・誌面</button>
+    </div>
+    <a class="back-link" href="./">全機能の試作へ ↗</a>
+  </div>
+
+  <div class="application">
+    <header class="masthead">
+      <a class="wordmark" href="./design.html"><span class="wordmark-symbol" aria-hidden="true">c<span>.</span></span> color-analysis</a>
+      <span class="masthead-note">LOCAL COLOR INSPECTOR</span>
+      <div class="header-actions"><button id="sample" class="text-button" type="button">サンプルに戻す</button><label class="choose-file">画像を選ぶ <span aria-hidden="true">↗</span><input id="file" type="file" accept="image/png,image/jpeg,image/webp"></label></div>
+    </header>
+
+    <main>
+      <div class="page-heading">
+        <div class="heading-copy"><p class="overline" id="overline">A / GALLERY</p><h1 id="headline">写真と、色の構成。</h1></div>
+        <p class="heading-note" id="heading-note">一枚の画像を、色から読み解く。<br>気になる色を選んで、画像の中へ。</p>
+        <span class="folio" aria-hidden="true">01<span>— COLOR STUDY</span></span>
+      </div>
+
+      <div id="status" class="status" role="status" aria-live="polite">サンプルを解析しています…</div>
+
+      <section class="analysis-layout" aria-label="画像と色の割合">
+        <div class="visual-column">
+          <div class="image-caption"><span class="caption-title" id="image-name">静かな水辺</span><span class="caption-meta" id="dimensions">1,200 × 900 px</span><span class="caption-index">FIG. 01</span></div>
+          <div class="image-stage" id="image-stage"><canvas id="image" aria-label="解析した画像。系統を選ぶと該当箇所を強調します。"></canvas><span class="image-tag" id="image-tag">ORIGINAL</span><button id="restore" class="restore-button" type="button" hidden>元画像に戻す ↶</button></div>
+          <div class="image-footnote"><span id="image-description">コードで描いた風景サンプル / 実写写真ではありません</span><span id="source-indicator">原寸の全ピクセルを集計</span></div>
+          <div class="palette-heading"><h2>色の構成</h2><span>COLOR COMPOSITION</span></div>
+          <div id="palette" class="palette" aria-label="全系統の面積比率"></div>
+          <div id="palette-legend" class="palette-legend"></div>
+          <p class="palette-instruction">色系統を選ぶと、その色のある場所だけを表示します。</p>
+        </div>
+
+        <aside class="reading-column" aria-labelledby="reading-title">
+          <div class="reading-heading"><h2 id="reading-title">この画像の色</h2><span id="family-count">— 系統</span></div>
+          <div class="dominant"><div class="dominant-copy"><span class="dominant-kicker">もっとも面積の大きい色系統</span><strong id="dominant-family">—</strong></div><div class="dominant-number"><span id="dominant-ratio">—</span><span class="percent-sign">%</span></div></div>
+          <div class="list-heading"><span>色系統</span><span>画像全体に占める割合</span></div>
+          <div id="families" class="family-list" aria-label="色系統の割合と強調表示"></div>
+          <div class="data-note"><span class="note-marker">i</span><p>薄い色・暗い色も、色みがあれば同じ系統に。白・グレー・黒に近い色は分けて集計しています。</p></div>
+          <div class="reading-footer"><span id="pixel-total">— pixels</span><button id="save" class="text-button" type="button" disabled>JSONを保存 ↓</button></div>
+        </aside>
+      </section>
+
+      <details class="details"><summary>測定条件・画像の取り扱い</summary><div><p>ブラウザが読み取ったsRGB・8bit RGBAを、固定ルールoklch-family-v1で全数集計します。完全透明は除外し、半透明は1画素として数えます。色名とその境界は分類の目安であり、人の印象や物体の種類を示すものではありません。</p><p>画像・名前・結果はこのページのメモリ内だけで扱い、外部送信・永続保存しません。保存ボタンを押した場合だけ、結果のJSONを端末へ保存します。元画像・名前・撮影情報は出力しません。PC・スマホ実機の最終検証は未完了です。</p><p>このページはデザイン比較用の機能を絞った試作です。完全一致、画素座標の検査、CSV出力等は「全機能の試作へ」から使えます。</p></div></details>
+    </main>
+
+    <footer class="app-footer"><span>画像は、この端末の中だけで。</span><span>color-analysis <span class="footer-separator">/</span> MIT · © 2026 rei-aogaki</span></footer>
+  </div>
+
+  <section class="study-notes" aria-labelledby="study-title"><div><span class="overline">DESIGN NOTES</span><h2 id="study-title">A案：画像を主役にした、静かな道具。</h2><p id="study-description">視線は「画像 → 色帯 → 数値」へ。操作を少なく見せながら、色を押すと画像と結果がつながります。日常的に使うツールとして、こちらを推奨します。</p></div><div class="study-proof"><span>比較の条件</span><p>切替時に画像や解析結果は変わりません。<br>同じ情報の、見せ方だけを比べています。</p></div></section>
+</body>
+</html>
