@@ -61,6 +61,7 @@ npm run audit:dist
 | src/analysis/families.ts | OKLCHの色系統分類、固定の境界と版番号 |
 | src/workers/analysis.worker.ts | メイン画面を占有しない集計・結果保持・出力 |
 | src/export/serialize.ts | 固定スキーマの全件CSV・JSON、出力キャンセル |
+| src/editor/ | 色もどし：モノクロ化・マスク合成（mask.ts）、Undo履歴（history.ts）、ブラシ形状（shapes.ts）、編集画面（editor.ts） |
 | tests/fixtures/png.ts | コードで生成する合成PNG・EXIF |
 | tests/unit/ / tests/browser/ | 数値・形式検証／実ブラウザの操作・通信・保存検証 |
 | scripts/prepare-dist.mjs | 配信物のライセンス通知と資産一覧 |
