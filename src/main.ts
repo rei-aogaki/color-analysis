@@ -114,11 +114,16 @@ async function load(file: File) {
   }
 }
 
+// Mobile browsers change innerHeight while the address bar collapses during scrolling.
+// The probe measures 100svh (100vh as fallback), which stays fixed through those changes.
+const viewportProbe = document.createElement('div');
+viewportProbe.className = 'viewport-probe'; viewportProbe.setAttribute('aria-hidden', 'true'); document.body.append(viewportProbe);
+const stableViewportHeight = () => viewportProbe.getBoundingClientRect().height || window.innerHeight;
 function resizePreview() {
   if (!pixels) return;
   // Size the frame from the source aspect ratio, independently of the zoom level.
   const availableWidth = viewport.parentElement!.clientWidth;
-  const heightLimit = Math.max(240, Math.min(720, Math.floor(window.innerHeight * 0.72)));
+  const heightLimit = Math.max(240, Math.min(720, Math.floor(stableViewportHeight() * 0.72)));
   const fitScale = Math.min(Math.max(1, availableWidth - 40) / pixels.width, (heightLimit - 40) / pixels.height, 1);
   const frameWidth = Math.min(availableWidth, Math.max(160, Math.ceil(pixels.width * fitScale) + 40));
   const frameHeight = Math.max(160, Math.ceil(pixels.height * fitScale) + 40);

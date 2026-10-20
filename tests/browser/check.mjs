@@ -216,6 +216,19 @@ try {
         assert(geometry.fh - geometry.ih < 42 || geometry.fh === 160, JSON.stringify(geometry));
       }
       if (w === 400) {
+        // Mobile address bars change innerHeight during scrolling while svh stays fixed; the frame must not resize.
+        const toolbarResize = await page.evaluate(() => {
+          const frame = document.querySelector('#viewport'), size = () => [frame.clientWidth, frame.clientHeight];
+          const original = Object.getOwnPropertyDescriptor(window, 'innerHeight'), start = size(), sizes = [];
+          try {
+            for (const height of [500, 780, 640]) {
+              Object.defineProperty(window, 'innerHeight', { configurable: true, get: () => height });
+              dispatchEvent(new Event('resize')); sizes.push(size());
+            }
+          } finally { if (original) Object.defineProperty(window, 'innerHeight', original); else delete window.innerHeight; dispatchEvent(new Event('resize')); }
+          return { start, sizes };
+        });
+        for (const size of toolbarResize.sizes) assert.deepEqual(size, toolbarResize.start, `frame resized with innerHeight: ${JSON.stringify(toolbarResize)}`);
         const before = await download('json');
         await openPanel(page, 'pixel-tools'); await page.locator('#zoom').selectOption('4');
         assert.equal(await page.locator('#viewport').evaluate(e=>e.clientWidth), geometry.fw);
@@ -230,6 +243,7 @@ try {
     }
   }
   results.push('adaptive portrait/landscape/square/tiny frames at desktop and mobile widths, zoom/pan and unchanged full-pixel exports');
+  results.push('preview frame keeps its size when only innerHeight changes (mobile address bar)');
 
   // Use the real compiled Worker, and measure processing only (not image decoding).
   const assets = await readdir(new URL('../../dist/assets/', import.meta.url));
