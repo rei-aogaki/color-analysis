@@ -2,6 +2,7 @@ import './styles.css';
 import { decode, validateFile } from './image/read.ts';
 import { hexOf, percent } from './analysis/histogram.ts';
 import { FAMILIES } from './analysis/families.ts';
+import { discardEditor, openEditor, setupEditor } from './editor/editor.ts';
 import type { Options, Query, Request, Response, Row, Summary } from './types.ts';
 
 function el<T extends HTMLElement>(id: string): T {
@@ -37,6 +38,7 @@ function updateBusy(value: typeof busy) {
   if (busy) { progress.removeAttribute('value'); progress.setAttribute('aria-label', busy === 'load' ? '画像の読み込み' : busy === 'export' ? '保存ファイルの準備' : '解析の進捗'); }
   for (const id of ['csv', 'json']) el<HTMLButtonElement>(id).disabled = !!busy || !summary;
   el<HTMLButtonElement>('sample').disabled = false;
+  el<HTMLButtonElement>('open-editor').disabled = !pixels || busy === 'load';
   el('workspace').setAttribute('aria-busy', busy ? 'true' : 'false');
 }
 function discardResult() {
@@ -50,7 +52,7 @@ function discardResult() {
   el('rows').replaceChildren(); el('chart').replaceChildren(); discardDownload();
 }
 function clear(message = '画像と解析結果をクリアしました。') {
-  sourceId++; discardResult(); pixels = undefined; canvas.width = canvas.height = 0;
+  sourceId++; discardResult(); discardEditor(); pixels = undefined; canvas.width = canvas.height = 0;
   fileInput.value = '';
   mode.value = 'families'; el<HTMLSelectElement>('match').value = 'rgba'; el<HTMLSelectElement>('step').value = '32';
   el<HTMLInputElement>('include-transparent').checked = false;
@@ -336,6 +338,7 @@ el('sample').addEventListener('click', () => {
   sample.toBlob(blob => { if (blob && expectedSource === sourceId) void load(new File([blob], 'sample-palette.png', { type: 'image/png' })); sample.width = sample.height = 0; }, 'image/png');
 });
 el('clear').addEventListener('click', () => clear()); cancelButton.addEventListener('click', cancel); analyzeButton.addEventListener('click', startAnalysis);
+el('open-editor').addEventListener('click', () => { if (pixels) openEditor(pixels, el('open-editor')); });
 el('reset-family').addEventListener('click', () => { void showFamily(); });
 settings.addEventListener('change', () => { updateMode(); discardResult(); updateBusy(undefined); status('条件が変わりました。「解析する」で再解析してください。'); });
 el('zoom').addEventListener('change', resizePreview);
@@ -375,5 +378,5 @@ el('previous').addEventListener('click', () => { if (page > 0) { page--; queryRo
 el('next').addEventListener('click', () => { if ((page + 1) * 50 < pageTotal) { page++; queryRows(); } });
 el('csv').addEventListener('click', () => prepareExport('csv')); el('json').addEventListener('click', () => prepareExport('json'));
 window.addEventListener('pagehide', () => clear()); window.addEventListener('pageshow', event => { if (event.persisted) clear(); });
-updateMode(); updateBusy(undefined);
+setupEditor(); updateMode(); updateBusy(undefined);
 if (!window.Worker || !window.createImageBitmap) { status('このブラウザは試作の画像読み取りに対応していません。新しいブラウザをお試しください。', true); fileInput.disabled = true; el<HTMLButtonElement>('sample').disabled = true; }
