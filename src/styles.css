@@ -66,6 +66,7 @@ h1 { font-size: 28px; font-weight: 550; letter-spacing: -.04em; margin-top: 7px;
 .image-meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .image-meta > span:last-child { white-space: nowrap; font-size: 10px; }
 .viewport { height: 240px; max-width: 100%; margin-inline: auto; overflow: auto; display: grid; place-items: safe center; padding: 20px; position: relative; background-color: #e9ebe8; background-image: repeating-conic-gradient(#e9ebe8 0% 25%, #e3e6e2 0% 50%); background-size: 20px 20px; overscroll-behavior: contain; }
+.viewport-probe { position: fixed; top: 0; left: 0; width: 0; height: 100vh; height: 100svh; visibility: hidden; pointer-events: none; }
 #preview { display: block; max-width: none; cursor: crosshair; touch-action: pan-x pan-y; }
 .pixelated { image-rendering: pixelated; }
 .tool-details { border-top: 1px solid var(--border); margin-top: 14px; }
