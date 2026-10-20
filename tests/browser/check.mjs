@@ -106,11 +106,15 @@ try {
   }); await target.evaluate(() => new Promise(requestAnimationFrame)); };
   await page.locator('#open-editor').click();
   assert(await page.locator('#editor').isVisible());
+  assert.deepEqual(await page.evaluate(() => ({ open: document.documentElement.classList.contains('editor-open'), inert: document.querySelector('main').inert, focus: document.activeElement.id })),
+    { open: true, inert: true, focus: 'editor-close' });
   assert.equal(await page.locator('#editor-look').getAttribute('open'), '', 'look settings are open on wide screens');
   assert.equal(await page.locator('#editor-sticker').isChecked(), true, 'sticker look is on by default');
   // Pixel checks below use the plain look: original colors, no dimming, no rims.
   await plainLook(page);
-  assert(await page.evaluate(() => document.documentElement.classList.contains('editor-open') && document.querySelector('main').inert && document.activeElement.id === 'editor-close'));
+  assert.equal(await page.locator('[data-shape="similar"]').getAttribute('aria-pressed'), 'true', 'similar color is the default tool');
+  assert.equal(await page.locator('#editor-size-row').isVisible(), false);
+  await page.locator('[data-shape="circle"]').click(); assert.equal(await page.locator('#editor-size-row').isVisible(), true);
   assert.deepEqual(await editorPixel(360, 320), [sampleGray[1], sampleGray[1], sampleGray[1], 255], 'editor starts monochrome');
   assert.equal(await page.locator('#editor-undo').isDisabled(), true);
   await tapImage(360, 320); assert.deepEqual(await editorPixel(360, 320), [212,135,114,255], 'tap restores the original color');
@@ -148,6 +152,22 @@ try {
   await page.screenshot({ path: fileURLToPath(new URL('editor-sticker.png', output)) });
   await page.keyboard.press('Control+Z'); await plainLook(page);
   assert.deepEqual(await editorPixel(300, 520), [sampleGray[0], sampleGray[0], sampleGray[0], 255], 'undo removes the sticker');
+  // Similar color: one tap restores every area of that color; the range and "connected only" update it live.
+  await page.locator('#editor-reset').click(); await page.locator('[data-shape="similar"]').click();
+  await page.locator('#editor-tolerance').fill('40'); await tapImage(360, 320);
+  assert.deepEqual(await editorPixel(360, 320), [212,135,114,255]); assert.deepEqual(await editorPixel(1000, 700), [212,135,114,255], 'same color elsewhere is restored');
+  assert.deepEqual(await editorPixel(100, 100), [sampleGray[0], sampleGray[0], sampleGray[0], 255], 'other colors stay monochrome');
+  await page.locator('#editor-connected').check(); await page.evaluate(() => new Promise(requestAnimationFrame)); await page.evaluate(() => new Promise(requestAnimationFrame));
+  assert.deepEqual(await editorPixel(1000, 700), [sampleGray[1], sampleGray[1], sampleGray[1], 255], 'connected only drops the separate area');
+  assert.deepEqual(await editorPixel(360, 320), [212,135,114,255]);
+  await page.locator('#editor-connected').uncheck(); await page.locator('#editor-tolerance').fill('100');
+  await page.evaluate(() => new Promise(requestAnimationFrame)); await page.evaluate(() => new Promise(requestAnimationFrame));
+  assert.notDeepEqual(await editorPixel(100, 100), [sampleGray[0], sampleGray[0], sampleGray[0], 255], 'a wide range reaches related colors');
+  await page.locator('#editor-undo').click();
+  assert.deepEqual(await editorPixel(360, 320), [sampleGray[1], sampleGray[1], sampleGray[1], 255], 'live updates stay a single undo step');
+  assert.equal(await page.locator('#editor-undo').isDisabled(), false, 'reset all remains undoable');
+  await page.locator('#editor-undo').click(); assert.deepEqual(await editorPixel(960, 640), [212,135,114,255]);
+  await page.locator('#editor-tolerance').fill('40'); await page.locator('[data-shape="circle"]').click();
   await page.screenshot({ path: fileURLToPath(new URL('editor-desktop.png', output)) });
   await page.locator('#editor-save').click(); await page.locator('#editor-export').waitFor({ state: 'visible' });
   const savedWaiting = page.waitForEvent('download'); await page.locator('#editor-download').click(); const saved = await savedWaiting;
@@ -379,8 +399,14 @@ try {
   started = Date.now(); await page.mouse.move(big.x + big.width - 20, big.y + big.height - 20, { steps: 40 }); await page.mouse.up();
   const strokeMs = Date.now() - started; const frames = (await page.evaluate(() => window.__stopFrames())).slice(1).sort((a, b) => a - b);
   started = Date.now(); await page.locator('#editor-undo').click(); const undoMs = Date.now() - started;
+  // Similar color at the worst case: every pixel matches, across the image and as one connected area.
+  await page.locator('[data-shape="similar"]').click(); const center = [big.x + big.width / 2, big.y + big.height / 2];
+  started = Date.now(); await page.mouse.click(...center); await page.evaluate(() => new Promise(requestAnimationFrame)); const similarAllMs = Date.now() - started;
+  await page.locator('#editor-undo').click(); await page.locator('#editor-connected').check();
+  started = Date.now(); await page.mouse.click(...center); await page.evaluate(() => new Promise(requestAnimationFrame)); const similarConnectedMs = Date.now() - started;
+  await page.locator('#editor-connected').uncheck(); await page.locator('#editor-undo').click(); await page.locator('[data-shape="circle"]').click();
   started = Date.now(); await page.locator('#editor-save').click(); await page.locator('#editor-export').waitFor({ state: 'visible', timeout: 60000 }); const savePngMs = Date.now() - started;
-  const editorPerformance = { pixels: 16_000_000, openMs: editorOpenMs, strokeMs, frameMedianMs: Math.round(frames[frames.length >> 1] ?? frameMs), frameMaxMs: Math.round(frames.at(-1) ?? 0), undoMs, savePngMs };
+  const editorPerformance = { pixels: 16_000_000, openMs: editorOpenMs, strokeMs, frameMedianMs: Math.round(frames[frames.length >> 1] ?? frameMs), frameMaxMs: Math.round(frames.at(-1) ?? 0), undoMs, similarAllMs, similarConnectedMs, savePngMs };
   assert(editorOpenMs < 10000 && undoMs < 5000, JSON.stringify(editorPerformance));
   await page.locator('#editor-close').click();
   results.push('16M pixel editor open/stroke/undo/save measured');

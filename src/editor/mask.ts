@@ -4,7 +4,7 @@
 export type Rect = { x: number; y: number; w: number; h: number };
 export type Point = { x: number; y: number };
 
-const toLinear = new Float64Array(256);
+export const toLinear = new Float64Array(256);
 for (let v = 0; v < 256; v++) { const c = v / 255; toLinear[v] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
 const LINEAR_STEPS = 4096;
 const toEncoded = new Uint8Array(LINEAR_STEPS + 1);

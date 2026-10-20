@@ -281,6 +281,8 @@ html.editor-open, html.editor-open body { overflow: hidden; }
 .size-row span { font-size: 10px; color: var(--muted); min-width: 88px; text-align: right; }
 .editor-secondary { flex-wrap: wrap; }
 .editor-look { border-top: 1px solid var(--border); }
+.editor-similar .check-field { margin-top: 0; font-size: 12px; }
+.size-row .range-ends { min-width: 0; }
 .editor-look > summary { padding: 8px 0; min-height: 36px; }
 .editor-look .check-field { margin-top: 0; font-size: 12px; }
 .editor-look .size-row label { min-width: 80px; }
@@ -301,6 +303,9 @@ html.editor-open, html.editor-open body { overflow: hidden; }
   .editor-tools { border-top: 0; border-left: 1px solid var(--border); padding: 16px; gap: 12px; overflow-y: auto; }
   .editor-secondary { gap: 8px; }
   .shape-buttons button { flex-direction: column; gap: 2px; min-height: 64px; }
+}
+@media (max-width: 540px) {
+  .shape-buttons button { flex-direction: column; gap: 0; min-height: 56px; font-size: 11px; padding: 4px 2px; }
 }
 @media (max-width: 360px) {
   .editor-bar { gap: 4px; padding: 6px 8px; }

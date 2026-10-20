@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyStamp, clipRect, composite, luminance, occupiedRatio, stampsAlong, unionRect } from '../../src/editor/mask.ts';
 import { MaskHistory } from '../../src/editor/history.ts';
+import { selectSimilar, thresholdOf } from '../../src/editor/select.ts';
 
 const rgba = (...pixels: number[][]) => new Uint8ClampedArray(pixels.flat());
 
@@ -103,4 +104,24 @@ test('履歴はメモリ上限を超えると古い筆から捨て、最新の�
   assert.equal(mask[0], 255, 'the oldest stroke can no longer be undone');
   const big = new MaskHistory([mask], width, height, 10); big.begin(); big.touch({ x: 0, y: 0, w: 128, h: 128 }); mask.fill(7); big.end();
   assert.equal(big.canUndo, true);
+});
+
+test('似た色：つながった所だけ、または画像全体の似た色を選び、ふちを1画素なめらかにする', () => {
+  // 7 × 3: red | gray wall | red, with a darker red (shadow) next to the left red.
+  const R = [200,30,30,255], S = [120,15,15,255], G = [128,128,128,255];
+  const row = [R, S, G, G, G, R, R], width = 7, height = 3;
+  const data = new Uint8ClampedArray(Array.from({ length: height }, () => row).flat(2));
+  const local = selectSimilar(data, width, height, 0, 1, .5, true)!;
+  assert.deepEqual(local.rect, { x: 0, y: 0, w: 3, h: 3 }, 'shaded red joins, the wall stops the fill');
+  assert.equal(local.coverage[1 * 3 + 0], 255); assert.equal(local.coverage[1 * 3 + 1], 255);
+  assert(local.coverage[1 * 3 + 2] > 0 && local.coverage[1 * 3 + 2] < 255, 'one soft pixel outside');
+  const global = selectSimilar(data, width, height, 0, 1, .5, false)!;
+  assert.deepEqual(global.rect, { x: 0, y: 0, w: 7, h: 3 }, 'red on the other side is included');
+  assert.equal(global.coverage[1 * 7 + 6], 255); assert.equal(global.coverage[1 * 7 + 3], 0);
+  const strict = selectSimilar(data, width, height, 0, 1, 0, false)!;
+  assert(strict.coverage[1 * strict.rect.w + (1 - strict.rect.x)] < 128, 'low tolerance leaves the shadow out (only the soft edge)');
+  assert.equal(selectSimilar(data, width, height, 9, 0, .5, true), undefined);
+  const clear = new Uint8ClampedArray(data); clear[3] = 0;
+  assert.equal(selectSimilar(clear, width, height, 0, 0, .5, true), undefined, 'transparent seed selects nothing');
+  assert(thresholdOf(0) < thresholdOf(1));
 });

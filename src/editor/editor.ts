@@ -1,5 +1,6 @@
 import { applyStamp, clipRect, composite, luminance, occupiedRatio, stampsAlong, unionRect, type Look, type Planes, type Point, type Rect } from './mask.ts';
 import { MaskHistory } from './history.ts';
+import { selectSimilar } from './select.ts';
 import { drawShape, shapePaths, SHAPES, type ShapeName } from './shapes.ts';
 
 // Full-screen editor that restores the original color where the user paints over a monochrome image.
@@ -16,10 +17,13 @@ function $<T extends HTMLElement>(id: string): T {
 }
 let editor: HTMLElement, stage: HTMLDivElement, view: HTMLDivElement, canvas: HTMLCanvasElement, cursor: HTMLCanvasElement;
 let session: Session | undefined, opener: HTMLElement | null = null;
-let shape: ShapeName = 'circle', restore = true, moving = false, zoom = 1, comparing = false;
+// tool is the pressed button; shape remembers the last brush shape for stamping.
+let tool: ShapeName | 'similar' = 'similar', shape: ShapeName = 'circle', restore = true, moving = false, zoom = 1, comparing = false;
 let fitScale = 1, displayScale = 1;
 let dirty: Rect | undefined, frame = 0;
-let stroke: { pointerId: number; last: Point; travelled: number } | undefined;
+let stroke: { pointerId: number; last: Point; travelled: number; taps: Point[] } | undefined;
+// The last similar-color stroke, re-applied live while the tolerance changes.
+let wand: Point[] | undefined, wandFrame = 0;
 const touches = new Set<number>();
 let drag: { x: number; y: number; left: number; top: number } | undefined;
 let exportUrl: string | undefined, exportFile: File | undefined, exporting = 0;
@@ -45,9 +49,10 @@ export function setupEditor(): void {
   editor = $('editor'); stage = $('editor-stage'); view = $('editor-view');
   canvas = $('editor-canvas'); cursor = $('editor-cursor');
   for (const button of editor.querySelectorAll<HTMLButtonElement>('[data-shape]')) {
-    const name = button.dataset.shape as ShapeName, icon = button.querySelector('canvas')!;
-    icon.width = icon.height = 56; const c = icon.getContext('2d')!; c.fillStyle = '#33493D'; drawShape(c, name, 6, 6, 44);
-    button.addEventListener('click', () => { shape = name; updateControls(); });
+    const name = button.dataset.shape as ShapeName | 'similar', icon = button.querySelector('canvas')!;
+    icon.width = icon.height = 56; const c = icon.getContext('2d')!; c.fillStyle = '#33493D';
+    if (name === 'similar') drawSparkle(c); else drawShape(c, name, 6, 6, 44);
+    button.addEventListener('click', () => { tool = name; if (name !== 'similar') shape = name; wand = undefined; updateControls(); });
   }
   $('editor-restore').addEventListener('click', () => { restore = true; updateControls(); });
   $('editor-erase').addEventListener('click', () => { restore = false; updateControls(); });
@@ -58,6 +63,7 @@ export function setupEditor(): void {
   $<HTMLInputElement>('editor-sticker').addEventListener('change', event => { sticker = (event.target as HTMLInputElement).checked; stampCache = undefined; });
   for (const id of ['editor-vivid', 'editor-dim']) $(id).addEventListener('input', () => { readLook(); discardExport(); if (session) { dirty = fullRect(); scheduleRender(); } });
   readLook();
+  $('editor-tolerance').addEventListener('input', reapplyWand); $('editor-connected').addEventListener('change', reapplyWand);
   $('editor-undo').addEventListener('click', undo); $('editor-redo').addEventListener('click', redo);
   $('editor-reset').addEventListener('click', resetAll);
   $('editor-close').addEventListener('click', closeEditor);
@@ -109,7 +115,8 @@ export function closeEditor(): void {
 /** Release every buffer of the current image. */
 export function discardEditor(): void {
   closeEditor(); cancelAnimationFrame(frame); frame = 0; dirty = undefined;
-  stroke = undefined; touches.clear(); session = undefined; stampCache = undefined;
+  stroke = undefined; touches.clear(); session = undefined; stampCache = undefined; wand = undefined;
+  cancelAnimationFrame(wandFrame); wandFrame = 0;
   discardExport(); exporting++;
   if (canvas) canvas.width = canvas.height = 0;
 }
@@ -132,12 +139,14 @@ function layout() {
 function setZoom(value: number) { zoom = [1, 2, 4].includes(value) ? value : 1; layout(); }
 
 function updateControls() {
-  for (const button of editor.querySelectorAll<HTMLButtonElement>('[data-shape]')) button.setAttribute('aria-pressed', String(button.dataset.shape === shape));
+  for (const button of editor.querySelectorAll<HTMLButtonElement>('[data-shape]')) button.setAttribute('aria-pressed', String(button.dataset.shape === tool));
+  $('editor-size-row').hidden = tool === 'similar'; $('editor-similar-options').hidden = tool !== 'similar';
   $('editor-restore').setAttribute('aria-pressed', String(restore)); $('editor-erase').setAttribute('aria-pressed', String(!restore));
   $('editor-move').setAttribute('aria-pressed', String(moving)); editor.classList.toggle('moving', moving);
   $<HTMLButtonElement>('editor-undo').disabled = !session?.history.canUndo;
   $<HTMLButtonElement>('editor-redo').disabled = !session?.history.canRedo;
-  canvas.setAttribute('aria-label', `${restore ? '色を戻す' : 'モノクロに戻す'}画像。${SHAPES[shape].label}の形でなぞるかタップしてください。`);
+  canvas.setAttribute('aria-label', `${restore ? '色を戻す' : 'モノクロに戻す'}画像。` +
+    (tool === 'similar' ? 'タップした所と似た色をまとめて切り替えます。' : `${SHAPES[shape].label}の形でなぞるかタップしてください。`));
   updateSizeLabel();
 }
 function updateSizeLabel() {
@@ -199,6 +208,29 @@ function stamp(point: Point, size: number, avoidOverlap = false): boolean {
   }
   dirty = unionRect(dirty, changed); scheduleRender(); return true;
 }
+const tolerance = () => Number($<HTMLInputElement>('editor-tolerance').value) / 100;
+/** Restore (or erase) every pixel similar to the color at point. */
+function applySimilar(point: Point): boolean {
+  const s = session!, { width, height } = s.source;
+  const selection = selectSimilar(s.source.data, width, height, point.x, point.y, tolerance(), $<HTMLInputElement>('editor-connected').checked);
+  if (!selection) return false;
+  const { rect, coverage } = selection, { mask, rim, shadow } = s.planes;
+  s.history.touch(rect);
+  const changed = applyStamp(mask, width, height, coverage, rect.w, rect.h, rect.x, rect.y, restore);
+  if (!restore) { applyStamp(rim, width, height, coverage, rect.w, rect.h, rect.x, rect.y, false); applyStamp(shadow, width, height, coverage, rect.w, rect.h, rect.x, rect.y, false); }
+  dirty = unionRect(dirty, changed); scheduleRender(); return true;
+}
+/** Redo the last similar-color stroke with the current tolerance, replacing it in the history. */
+function reapplyWand() {
+  if (!wand || !session || stroke || wandFrame) return;
+  wandFrame = requestAnimationFrame(() => {
+    wandFrame = 0; const points = wand; if (!points || !session || stroke) return;
+    discardExport(); const undone = session.history.undo(); if (undone) dirty = unionRect(dirty, undone);
+    session.history.begin(); for (const point of points) applySimilar(point);
+    if (!session.history.end()) wand = undefined;
+    flushRender(); updateControls();
+  });
+}
 function onPointerDown(event: PointerEvent) {
   if (!session || comparing || event.button > 0) return;
   if (event.pointerType === 'touch') touches.add(event.pointerId);
@@ -211,14 +243,29 @@ function onPointerDown(event: PointerEvent) {
   if (stroke) return;
   event.preventDefault(); capture(stage, event.pointerId);
   discardExport(); session.history.begin();
-  const point = toImage(event); stroke = { pointerId: event.pointerId, last: point, travelled: 0 };
-  stamp(point, imageSize()); drawCursor(event);
+  const point = toImage(event); stroke = { pointerId: event.pointerId, last: point, travelled: 0, taps: [point] };
+  if (tool === 'similar') applySimilar(point); else stamp(point, imageSize());
+  drawCursor(event);
 }
 function onPointerMove(event: PointerEvent) {
   if (drag) { stage.scrollLeft = drag.left - event.clientX + drag.x; stage.scrollTop = drag.top - event.clientY + drag.y; return; }
   if (!session || moving) return;
   if (!stroke) { if (event.pointerType !== 'touch') drawCursor(event); return; }
   if (event.pointerId !== stroke.pointerId) return;
+  if (tool === 'similar') {
+    // Dragging adds the colors it passes over that are not switched yet.
+    const s = session, spacing = 24 / displayScale;
+    for (const sample of event.getCoalescedEvents?.() ?? [event]) {
+      const point = toImage(sample), walk = stampsAlong(stroke.last, point, spacing, stroke.travelled);
+      for (const p of walk.points) {
+        const x = Math.floor(p.x), y = Math.floor(p.y); if (x < 0 || y < 0 || x >= s.source.width || y >= s.source.height) continue;
+        const value = s.planes.mask[y * s.source.width + x];
+        if ((restore ? value < 128 : value >= 128) && applySimilar(p)) stroke.taps.push(p);
+      }
+      stroke.last = point; stroke.travelled = walk.travelled;
+    }
+    drawCursor(event); return;
+  }
   // Animals are tried often along the path but only placed where they do not overlap, so each stays readable.
   const size = imageSize(), animal = shape !== 'circle' && restore, spacing = Math.max(1, size * (animal ? 0.25 : SHAPES[shape].spacing));
   for (const sample of event.getCoalescedEvents?.() ?? [event]) {
@@ -235,16 +282,20 @@ function onPointerUp(event: PointerEvent) {
 }
 function endStroke() {
   if (!stroke || !session) { stroke = undefined; return; }
-  stroke = undefined; session.history.end(); updateControls();
+  const taps = stroke.taps; stroke = undefined;
+  const recorded = session.history.end();
+  wand = tool === 'similar' && recorded ? taps : undefined;
+  if (wand) status('「似た色の範囲」で、戻す範囲を広げたり狭めたりできます。');
+  updateControls();
 }
 
 function undo() {
-  if (!session || stroke) return; discardExport();
+  if (!session || stroke) return; discardExport(); wand = undefined;
   const area = session.history.undo(); if (area) { render(area); status('ひと筆、元に戻しました。'); }
   updateControls();
 }
 function redo() {
-  if (!session || stroke) return; discardExport();
+  if (!session || stroke) return; discardExport(); wand = undefined;
   const area = session.history.redo(); if (area) { render(area); status('やり直しました。'); }
   updateControls();
 }
@@ -252,7 +303,7 @@ function resetAll() {
   if (!session || stroke) return;
   const { planes, history } = session;
   if (!planes.mask.some(v => v !== 0) && !planes.rim.some(v => v !== 0)) { status('すでに全部モノクロです。'); return; }
-  discardExport(); const all = fullRect();
+  discardExport(); wand = undefined; const all = fullRect();
   history.begin(); history.touch(all); planes.mask.fill(0); planes.rim.fill(0); planes.shadow.fill(0); history.end();
   render(all); updateControls(); status('全部モノクロに戻しました。↶で元に戻せます。');
 }
@@ -284,18 +335,29 @@ function setComparing(value: boolean) {
   $('editor-compare').setAttribute('aria-pressed', String(comparing));
 }
 
+/** Icon for the similar-color tool: a four-pointed sparkle with a small one beside it. */
+function drawSparkle(c: CanvasRenderingContext2D) {
+  const star = (x: number, y: number, r: number) => {
+    c.beginPath(); c.moveTo(x, y - r);
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) c.quadraticCurveTo(x, y, x + dx * r, y + dy * r);
+    c.fill();
+  };
+  star(24, 30, 22); star(45, 13, 9);
+}
+
 // --- Brush preview on top of the image ----------------------------------------------------------
 
 function cursorImage(): HTMLCanvasElement {
-  const ratio = devicePixelRatio || 1, size = Math.max(4, Math.round(imageSize() * displayScale * ratio)), key = `${shape}:${size}`;
+  const ratio = devicePixelRatio || 1, similar = tool === 'similar', mark: ShapeName = similar ? 'circle' : shape;
+  const size = Math.max(4, Math.round((similar ? 22 : imageSize() * displayScale) * ratio)), key = `${mark}:${size}`;
   if (cursorCache?.key === key) return cursorCache.image;
   // Outline only: a dark ring with a light halo stays visible on any photo.
   const pad = 4, image = document.createElement('canvas'); image.width = image.height = size + pad * 2;
   const c = image.getContext('2d')!;
-  const ring = (color: string, offset: number) => { c.fillStyle = color; for (const [dx, dy] of [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]]) drawShape(c, shape, pad + dx * offset, pad + dy * offset, size); };
+  const ring = (color: string, offset: number) => { c.fillStyle = color; for (const [dx, dy] of [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]]) drawShape(c, mark, pad + dx * offset, pad + dy * offset, size); };
   ring('rgba(255,255,255,.95)', 2 * ratio); ring('#1D2B25', ratio);
   c.globalCompositeOperation = 'destination-out'; c.fillStyle = '#000';
-  drawShape(c, shape, pad, pad, size);
+  drawShape(c, mark, pad, pad, size);
   cursorCache = { key, image }; return image;
 }
 function drawCursor(event: PointerEvent) {
