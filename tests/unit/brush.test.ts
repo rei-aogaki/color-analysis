@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyStamp, clipRect, composite, luminance, stampsAlong, unionRect } from '../../src/editor/mask.ts';
+import { applyStamp, clipRect, composite, luminance, occupiedRatio, stampsAlong, unionRect } from '../../src/editor/mask.ts';
 import { MaskHistory } from '../../src/editor/history.ts';
 
 const rgba = (...pixels: number[][]) => new Uint8ClampedArray(pixels.flat());
@@ -13,12 +13,35 @@ test('モノクロは線形の明るさで計算し、白・黒・灰色を保�
   assert.deepEqual([gray[3], gray[4], gray[5]], [127, 220, 76]);
 });
 
+const plain = { dim: 0, vivid: 1 };
+const planesOf = (mask: number[], rim = mask.map(() => 0), shadow = mask.map(() => 0)) =>
+  ({ mask: new Uint8Array(mask), rim: new Uint8Array(rim), shadow: new Uint8Array(shadow) });
+
 test('合成はマスク0でモノクロ、255で元の色、中間で混ざり、透明度は元のまま', () => {
   const source = rgba([200,40,10,255], [200,40,10,128], [200,40,10,255]);
-  const gray = new Uint8Array([100, 100, 100]), mask = new Uint8Array([0, 255, 128]);
-  const out = new Uint8ClampedArray(12);
-  composite(source, gray, mask, 3, { x: 0, y: 0, w: 3, h: 1 }, out);
+  const gray = new Uint8Array([100, 100, 100]), out = new Uint8ClampedArray(12);
+  composite(source, gray, planesOf([0, 255, 128]), 3, { x: 0, y: 0, w: 3, h: 1 }, out, plain);
   assert.deepEqual([...out], [100,100,100,255, 200,40,10,128, 150,70,55,255]);
+});
+
+test('見せ方：背景を暗くし、影・白いふちの上に、鮮やかにした色を重ねる', () => {
+  const source = rgba([150,100,50,255], [150,100,50,255], [150,100,50,255], [150,100,50,255]);
+  const gray = new Uint8Array([100, 100, 100, 100]), out = new Uint8ClampedArray(16);
+  // Background only, shadow, rim, and color on top of the rim.
+  composite(source, gray, planesOf([0, 0, 0, 255], [0, 0, 255, 255], [0, 255, 255, 255]), 4, { x: 0, y: 0, w: 4, h: 1 }, out, { dim: .5, vivid: 2 });
+  assert.deepEqual([...out], [50,50,50,255, 30,30,30,255, 255,255,255,255, 200,100,0,255]);
+  // vivid stays within 0–255 and keeps gray pixels gray.
+  composite(rgba([250,10,128,255]), new Uint8Array([128]), planesOf([255]), 1, { x: 0, y: 0, w: 1, h: 1 }, out, { dim: 0, vivid: 1.8 });
+  assert.deepEqual([...out.slice(0, 4)], [255,0,128,255]);
+});
+
+test('重なり判定：形の中で、すでに色やふちがある割合を返す', () => {
+  const planes = planesOf([0,0,0, 0,255,0, 0,0,0], [0,0,0, 0,0,0, 0,0,200]);
+  const full = new Uint8Array(4).fill(255);
+  assert.equal(occupiedRatio(planes, 3, 3, full, 2, 0, 0), .25);
+  assert.equal(occupiedRatio(planes, 3, 3, full, 2, 1, 1), .5);
+  assert.equal(occupiedRatio(planesOf(new Array(9).fill(0)), 3, 3, full, 2, 0, 0), 0);
+  assert.equal(occupiedRatio(planes, 3, 3, full, 2, 5, 5), 1, 'a stamp entirely outside counts as unavailable');
 });
 
 test('スタンプは色を戻すと最大値、モノクロに戻すと反転した最小値で書き込む', () => {
@@ -50,7 +73,8 @@ test('なぞった道に一定間隔で並べ、区間をまたいでも間隔�
 });
 
 test('ひと筆ごとに元に戻す・やり直すができ、新しい筆でやり直し履歴は消える', () => {
-  const width = 100, height = 70, mask = new Uint8Array(width * height), history = new MaskHistory(mask, width, height);
+  const width = 100, height = 70, mask = new Uint8Array(width * height), rim = new Uint8Array(width * height);
+  const history = new MaskHistory([mask, rim], width, height);
   const paint = (x: number, y: number, value: number) => {
     history.begin(); const rect = { x, y, w: 3, h: 3 }; history.touch(rect);
     for (let row = y; row < y + 3; row++) mask.fill(value, row * width + x, row * width + x + 3);
@@ -65,16 +89,18 @@ test('ひと筆ごとに元に戻す・やり直すができ、新しい筆で�
   history.redo(); history.redo(); assert.deepEqual(mask, afterTwo); assert.equal(history.canRedo, false);
   history.undo(); assert.equal(paint(30, 30, 90), true); assert.equal(history.canRedo, false);
   assert.equal(paint(30, 30, 90), false, 'a stroke without changes is not recorded');
+  history.begin(); history.touch({ x: 0, y: 0, w: 1, h: 1 }); rim[0] = 9; assert.equal(history.end(), true, 'a change in another plane is recorded');
+  history.undo(); assert.equal(rim[0], 0); history.redo(); assert.equal(rim[0], 9);
   history.clear(); assert.equal(history.canUndo, false); assert.equal(history.storedBytes, 0);
 });
 
 test('履歴はメモリ上限を超えると古い筆から捨て、最新の筆は必ず残す', () => {
   const width = 128, height = 128, mask = new Uint8Array(width * height);
-  const history = new MaskHistory(mask, width, height, 64 * 64 * 2 * 2);
+  const history = new MaskHistory([mask], width, height, 64 * 64 * 2 * 2);
   for (const [x, y] of [[0, 0], [64, 0], [0, 64]]) { history.begin(); history.touch({ x, y, w: 1, h: 1 }); mask[y * width + x] = 255; history.end(); }
   assert.equal(history.storedBytes, 64 * 64 * 2 * 2);
   history.undo(); history.undo(); assert.equal(history.canUndo, false);
   assert.equal(mask[0], 255, 'the oldest stroke can no longer be undone');
-  const big = new MaskHistory(mask, width, height, 10); big.begin(); big.touch({ x: 0, y: 0, w: 128, h: 128 }); mask.fill(7); big.end();
+  const big = new MaskHistory([mask], width, height, 10); big.begin(); big.touch({ x: 0, y: 0, w: 128, h: 128 }); mask.fill(7); big.end();
   assert.equal(big.canUndo, true);
 });

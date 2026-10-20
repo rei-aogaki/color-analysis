@@ -1,5 +1,5 @@
 // Pixel math for the color restore brush. No DOM access, so it runs under node --test.
-// The mask holds one byte per pixel: 0 shows monochrome, 255 shows the original color.
+// The color mask holds one byte per pixel: 0 shows monochrome, 255 shows the original color.
 
 export type Rect = { x: number; y: number; w: number; h: number };
 export type Point = { x: number; y: number };
@@ -53,23 +53,56 @@ export function applyStamp(mask: Uint8Array, width: number, height: number, cove
   return rect;
 }
 
-/** Blend monochrome and original by the mask for one rectangle. out receives rect.w × rect.h RGBA pixels. */
-export function composite(source: Uint8ClampedArray, gray: Uint8Array, mask: Uint8Array, width: number, rect: Rect, out: Uint8ClampedArray): void {
+/**
+ * How the edit is shown. dim darkens the monochrome background (0–1); vivid scales the
+ * restored color's distance from its gray (1 = original color).
+ */
+export type Look = { dim: number; vivid: number };
+/** One byte per pixel each: restored color, white sticker rim, and the rim's drop shadow. */
+export type Planes = { mask: Uint8Array; rim: Uint8Array; shadow: Uint8Array };
+const SHADOW_STRENGTH = 0.4;
+
+/**
+ * Layer, bottom to top: monochrome (dimmed) → shadow → white rim → restored color.
+ * out receives rect.w × rect.h RGBA pixels; alpha always follows the source.
+ */
+export function composite(source: Uint8ClampedArray, gray: Uint8Array, planes: Planes, width: number, rect: Rect, out: Uint8ClampedArray, look: Look): void {
+  const { mask, rim, shadow } = planes, keep = 1 - look.dim, vivid = look.vivid;
   let o = 0;
   for (let y = rect.y; y < rect.y + rect.h; y++) {
     let p = y * width + rect.x;
     for (let x = 0; x < rect.w; x++, p++, o += 4) {
       const i = p * 4, g = gray[p], m = mask[p];
-      if (m === 0) { out[o] = out[o + 1] = out[o + 2] = g; }
-      else if (m === 255) { out[o] = source[i]; out[o + 1] = source[i + 1]; out[o + 2] = source[i + 2]; }
+      let base = g * keep;
+      if (shadow[p]) base *= 1 - SHADOW_STRENGTH * shadow[p] / 255;
+      if (rim[p]) base += (255 - base) * rim[p] / 255;
+      if (m === 0) { out[o] = out[o + 1] = out[o + 2] = base; }
       else {
-        out[o] = g + ((source[i] - g) * m) / 255;
-        out[o + 1] = g + ((source[i + 1] - g) * m) / 255;
-        out[o + 2] = g + ((source[i + 2] - g) * m) / 255;
+        let r = source[i], gr = source[i + 1], b = source[i + 2];
+        if (vivid !== 1) {
+          r = Math.min(255, Math.max(0, g + (r - g) * vivid));
+          gr = Math.min(255, Math.max(0, g + (gr - g) * vivid));
+          b = Math.min(255, Math.max(0, g + (b - g) * vivid));
+        }
+        if (m === 255) { out[o] = r; out[o + 1] = gr; out[o + 2] = b; }
+        else { out[o] = base + (r - base) * m / 255; out[o + 1] = base + (gr - base) * m / 255; out[o + 2] = base + (b - base) * m / 255; }
       }
       out[o + 3] = source[i + 3];
     }
   }
+}
+
+/** Share of the stamp's solid pixels that already show color or a sticker rim. */
+export function occupiedRatio(planes: Planes, width: number, height: number, coverage: Uint8Array, size: number, left: number, top: number): number {
+  let solid = 0, taken = 0;
+  for (let cy = 0; cy < size; cy++) {
+    const y = top + cy; if (y < 0 || y >= height) continue;
+    for (let cx = 0; cx < size; cx++) {
+      const x = left + cx; if (x < 0 || x >= width || coverage[cy * size + cx] < 128) continue;
+      solid++; const p = y * width + x; if (planes.mask[p] > 32 || planes.rim[p] > 32) taken++;
+    }
+  }
+  return solid ? taken / solid : 1;
 }
 
 /**

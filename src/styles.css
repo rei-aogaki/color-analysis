@@ -280,6 +280,10 @@ html.editor-open, html.editor-open body { overflow: hidden; }
 .size-row input { flex: 1; min-width: 0; min-height: 44px; accent-color: #345e63; }
 .size-row span { font-size: 10px; color: var(--muted); min-width: 88px; text-align: right; }
 .editor-secondary { flex-wrap: wrap; }
+.editor-look { border-top: 1px solid var(--border); }
+.editor-look > summary { padding: 8px 0; min-height: 36px; }
+.editor-look .check-field { margin-top: 0; font-size: 12px; }
+.editor-look .size-row label { min-width: 80px; }
 .zoom-field { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .zoom-field select { font-size: 12px; padding: 6px 8px; }
 #editor-move[aria-pressed=true] { background: #345e63; color: #fff; }

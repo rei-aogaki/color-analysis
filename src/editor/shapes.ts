@@ -27,7 +27,7 @@ export const SHAPES: Record<ShapeName, Shape> = {
 };
 
 const cache = new Map<ShapeName, { body: Path2D; holes?: Path2D }>();
-function paths(name: ShapeName) {
+export function shapePaths(name: ShapeName) {
   let entry = cache.get(name);
   if (!entry) {
     const shape = SHAPES[name], body = new Path2D(); shape.body(body);
@@ -39,7 +39,7 @@ function paths(name: ShapeName) {
 
 /** Fill the shape into a size × size area at (x, y) with the current fillStyle. */
 export function drawShape(context: CanvasRenderingContext2D, name: ShapeName, x: number, y: number, size: number): void {
-  const { body, holes } = paths(name);
+  const { body, holes } = shapePaths(name);
   context.save(); context.translate(x, y); context.scale(size / 100, size / 100);
   context.fill(body, 'nonzero');
   if (holes) { context.globalCompositeOperation = 'destination-out'; context.fill(holes); }

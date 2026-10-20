@@ -100,8 +100,16 @@ try {
   const toScreen = async (x, y) => { const box = await page.locator('#editor-canvas').boundingBox(); return [box.x + x / 1200 * box.width, box.y + y / 800 * box.height]; };
   const tapImage = async (x, y) => { const [sx, sy] = await toScreen(x, y); await page.mouse.click(sx, sy); await page.evaluate(() => new Promise(requestAnimationFrame)); };
   const brushSize = async () => Number((await page.locator('#editor-size-value').innerText()).replace(/\D/g, ''));
+  const plainLook = async target => { await target.evaluate(() => {
+    for (const [id, value] of [['editor-vivid', '0'], ['editor-dim', '0']]) { const input = document.getElementById(id); input.value = value; input.dispatchEvent(new Event('input')); }
+    const sticker = document.getElementById('editor-sticker'); sticker.checked = false; sticker.dispatchEvent(new Event('change'));
+  }); await target.evaluate(() => new Promise(requestAnimationFrame)); };
   await page.locator('#open-editor').click();
   assert(await page.locator('#editor').isVisible());
+  assert.equal(await page.locator('#editor-look').getAttribute('open'), '', 'look settings are open on wide screens');
+  assert.equal(await page.locator('#editor-sticker').isChecked(), true, 'sticker look is on by default');
+  // Pixel checks below use the plain look: original colors, no dimming, no rims.
+  await plainLook(page);
   assert(await page.evaluate(() => document.documentElement.classList.contains('editor-open') && document.querySelector('main').inert && document.activeElement.id === 'editor-close'));
   assert.deepEqual(await editorPixel(360, 320), [sampleGray[1], sampleGray[1], sampleGray[1], 255], 'editor starts monochrome');
   assert.equal(await page.locator('#editor-undo').isDisabled(), true);
@@ -126,6 +134,20 @@ try {
   assert.deepEqual(await editorPixel(...eye), [212,135,114,255], 'holding compare shows the original');
   assert.equal(await page.locator('#editor-compare').getAttribute('aria-pressed'), 'true');
   await page.mouse.up(); assert.deepEqual(await editorPixel(...eye), [sampleGray[1], sampleGray[1], sampleGray[1], 255]);
+  // Sticker look: a white rim below the bear's chin, a darker background, and more vivid color.
+  await page.locator('#editor-sticker').check(); await tapImage(300, 520);
+  assert.deepEqual(await editorPixel(300, 520), [236,232,223,255], 'stamp center restores color');
+  const rimPixel = await editorPixel(300, Math.round(520 + bear * .455));
+  assert(rimPixel.slice(0, 3).every(v => v >= 235), `sticker rim is white: ${rimPixel}`);
+  await page.locator('#editor-dim').fill('100'); await page.evaluate(() => new Promise(requestAnimationFrame));
+  const dimmed = await editorPixel(1100, 60);
+  assert(Math.abs(dimmed[0] - Math.round(sampleGray[2] * .4)) <= 1 && dimmed[0] === dimmed[2], `background dims: ${dimmed}`);
+  await page.locator('#editor-vivid').fill('100'); await page.evaluate(() => new Promise(requestAnimationFrame));
+  const vivid = await editorPixel(960, 640);
+  assert(vivid[0] - vivid[2] > 212 - 114, `restored color gets more vivid: ${vivid}`);
+  await page.screenshot({ path: fileURLToPath(new URL('editor-sticker.png', output)) });
+  await page.keyboard.press('Control+Z'); await plainLook(page);
+  assert.deepEqual(await editorPixel(300, 520), [sampleGray[0], sampleGray[0], sampleGray[0], 255], 'undo removes the sticker');
   await page.screenshot({ path: fileURLToPath(new URL('editor-desktop.png', output)) });
   await page.locator('#editor-save').click(); await page.locator('#editor-export').waitFor({ state: 'visible' });
   const savedWaiting = page.waitForEvent('download'); await page.locator('#editor-download').click(); const saved = await savedWaiting;
@@ -398,6 +420,8 @@ try {
     toolsBottom: document.querySelector('.editor-tools').getBoundingClientRect().bottom, height: innerHeight,
     stage: document.querySelector('#editor-stage').getBoundingClientRect().height }));
   assert(!mobileEditor.overflow && mobileEditor.toolsBottom <= mobileEditor.height + 1 && mobileEditor.stage > 300, JSON.stringify(mobileEditor));
+  assert.equal(await touchPage.locator('#editor-look').getAttribute('open'), null, 'look settings start folded on phones');
+  await plainLook(touchPage);
   const mobileBox = await touchPage.locator('#editor-canvas').boundingBox();
   await touchPage.touchscreen.tap(mobileBox.x + mobileBox.width * .3, mobileBox.y + mobileBox.height * .4);
   await touchPage.evaluate(() => new Promise(requestAnimationFrame));

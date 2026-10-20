@@ -1,24 +1,24 @@
 import { unionRect, type Rect } from './mask.ts';
 
-// Undo/redo for the mask, one entry per stroke. Only tiles a stroke touched are stored,
-// before and after, so a small stroke on a 16-megapixel image stays small in memory.
+// Undo/redo for the edit planes (color, rim, shadow), one entry per stroke. Only tiles a stroke
+// touched are stored, before and after, so a small stroke on a 16-megapixel image stays small.
 const TILE = 64;
-type Tile = { rect: Rect; before: Uint8Array; after: Uint8Array };
+type Tile = { rect: Rect; before: Uint8Array[]; after: Uint8Array[] };
 type Stroke = { tiles: Tile[]; bounds: Rect; bytes: number };
 
 export class MaskHistory {
-  private readonly mask: Uint8Array;
+  private readonly planes: Uint8Array[];
   private readonly width: number;
   private readonly height: number;
   private readonly limitBytes: number;
   private readonly columns: number;
-  private pending: Map<number, { rect: Rect; before: Uint8Array }> | undefined;
+  private pending: Map<number, { rect: Rect; before: Uint8Array[] }> | undefined;
   private undoStack: Stroke[] = [];
   private redoStack: Stroke[] = [];
   private bytes = 0;
 
-  constructor(mask: Uint8Array, width: number, height: number, limitBytes = 64 * 1024 * 1024) {
-    this.mask = mask; this.width = width; this.height = height; this.limitBytes = limitBytes;
+  constructor(planes: Uint8Array[], width: number, height: number, limitBytes = 64 * 1024 * 1024) {
+    this.planes = planes; this.width = width; this.height = height; this.limitBytes = limitBytes;
     this.columns = Math.ceil(width / TILE);
   }
   get canUndo() { return this.undoStack.length > 0; }
@@ -27,7 +27,7 @@ export class MaskHistory {
   get storedBytes() { return this.bytes; }
 
   begin(): void { this.pending = new Map(); }
-  /** Call before the mask changes inside rect, so the previous values can be kept. */
+  /** Call before any plane changes inside rect, so the previous values can be kept. */
   touch(rect: Rect): void {
     if (!this.pending) return;
     const x0 = Math.floor(rect.x / TILE), y0 = Math.floor(rect.y / TILE);
@@ -44,8 +44,8 @@ export class MaskHistory {
     const pending = this.pending; this.pending = undefined; if (!pending) return false;
     const tiles: Tile[] = []; let bounds: Rect | undefined, bytes = 0;
     for (const { rect, before } of pending.values()) {
-      const after = this.read(rect); if (equal(before, after)) continue;
-      tiles.push({ rect, before, after }); bytes += before.length * 2;
+      const after = this.read(rect); if (before.every((plane, i) => equal(plane, after[i]))) continue;
+      tiles.push({ rect, before, after }); bytes += rect.w * rect.h * this.planes.length * 2;
       bounds = unionRect(bounds, rect);
     }
     if (!bounds) return false;
@@ -70,16 +70,20 @@ export class MaskHistory {
   clear(): void { this.pending = undefined; this.undoStack = []; this.redoStack = []; this.bytes = 0; }
 
   private recount() { this.bytes = this.undoStack.reduce((sum, stroke) => sum + stroke.bytes, 0); }
-  private read(rect: Rect): Uint8Array {
-    const out = new Uint8Array(rect.w * rect.h);
-    for (let row = 0; row < rect.h; row++) {
-      const start = (rect.y + row) * this.width + rect.x;
-      out.set(this.mask.subarray(start, start + rect.w), row * rect.w);
-    }
-    return out;
+  private read(rect: Rect): Uint8Array[] {
+    return this.planes.map(plane => {
+      const out = new Uint8Array(rect.w * rect.h);
+      for (let row = 0; row < rect.h; row++) {
+        const start = (rect.y + row) * this.width + rect.x;
+        out.set(plane.subarray(start, start + rect.w), row * rect.w);
+      }
+      return out;
+    });
   }
-  private write(rect: Rect, values: Uint8Array) {
-    for (let row = 0; row < rect.h; row++) this.mask.set(values.subarray(row * rect.w, (row + 1) * rect.w), (rect.y + row) * this.width + rect.x);
+  private write(rect: Rect, values: Uint8Array[]) {
+    this.planes.forEach((plane, i) => {
+      for (let row = 0; row < rect.h; row++) plane.set(values[i].subarray(row * rect.w, (row + 1) * rect.w), (rect.y + row) * this.width + rect.x);
+    });
   }
 }
 
