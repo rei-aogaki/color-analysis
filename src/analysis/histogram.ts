@@ -109,7 +109,7 @@ export async function analyzePixels(data: Uint8ClampedArray, width: number, heig
     }
   }
   exact.clear();
-  const summary: Summary = { schemaVersion: 2, appVersion: '0.2.0', measurementBasis: 'canvas-srgb-rgba8', width, height, options: { ...options },
+  const summary: Summary = { schemaVersion: 2, appVersion: '0.3.0', measurementBasis: 'canvas-srgb-rgba8', width, height, options: { ...options },
     ...(options.mode === 'families' ? { classification: { ...FAMILY_RULE } } : {}),
     totalPixels: pixels, includedPixels: included, excludedPixels: pixels - included,
     transparentPixels: transparent, translucentPixels: translucent, opaquePixels: opaque, rowCount: length };
